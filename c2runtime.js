@@ -19156,6 +19156,188 @@ cr.plugins_.Browser = function(runtime)
 }());
 ;
 ;
+cr.plugins_.Dictionary = function(runtime)
+{
+	this.runtime = runtime;
+};
+(function ()
+{
+	var pluginProto = cr.plugins_.Dictionary.prototype;
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+	var typeProto = pluginProto.Type.prototype;
+	typeProto.onCreate = function()
+	{
+	};
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	var instanceProto = pluginProto.Instance.prototype;
+	instanceProto.onCreate = function()
+	{
+		this.dictionary = {};
+		this.cur_key = "";		// current key in for-each loop
+		this.key_count = 0;
+	};
+	instanceProto.saveToJSON = function ()
+	{
+		return this.dictionary;
+	};
+	instanceProto.loadFromJSON = function (o)
+	{
+		this.dictionary = o;
+		this.key_count = 0;
+		for (var p in this.dictionary)
+		{
+			if (this.dictionary.hasOwnProperty(p))
+				this.key_count++;
+		}
+	};
+	function Cnds() {};
+	Cnds.prototype.CompareValue = function (key_, cmp_, value_)
+	{
+		return cr.do_cmp(this.dictionary[key_], cmp_, value_);
+	};
+	Cnds.prototype.ForEachKey = function ()
+	{
+		var current_event = this.runtime.getCurrentEventStack().current_event;
+		for (var p in this.dictionary)
+		{
+			if (this.dictionary.hasOwnProperty(p))
+			{
+				this.cur_key = p;
+				this.runtime.pushCopySol(current_event.solModifiers);
+				current_event.retrigger();
+				this.runtime.popSol(current_event.solModifiers);
+			}
+		}
+		this.cur_key = "";
+		return false;
+	};
+	Cnds.prototype.CompareCurrentValue = function (cmp_, value_)
+	{
+		return cr.do_cmp(this.dictionary[this.cur_key], cmp_, value_);
+	};
+	Cnds.prototype.HasKey = function (key_)
+	{
+		return this.dictionary.hasOwnProperty(key_);
+	};
+	Cnds.prototype.IsEmpty = function ()
+	{
+		return this.key_count === 0;
+	};
+	pluginProto.cnds = new Cnds();
+	function Acts() {};
+	Acts.prototype.AddKey = function (key_, value_)
+	{
+		if (!this.dictionary.hasOwnProperty(key_))
+			this.key_count++;
+		this.dictionary[key_] = value_;
+	};
+	Acts.prototype.SetKey = function (key_, value_)
+	{
+		if (this.dictionary.hasOwnProperty(key_))
+			this.dictionary[key_] = value_;
+	};
+	Acts.prototype.DeleteKey = function (key_)
+	{
+		if (this.dictionary.hasOwnProperty(key_))
+		{
+			delete this.dictionary[key_];
+			this.key_count--;
+		}
+	};
+	Acts.prototype.Clear = function ()
+	{
+		cr.wipe(this.dictionary);		// avoid garbaging
+		this.key_count = 0;
+	};
+	Acts.prototype.JSONLoad = function (json_)
+	{
+		var o;
+		try {
+			o = JSON.parse(json_);
+		}
+		catch(e) { return; }
+		if (!o["c2dictionary"])		// presumably not a c2dictionary object
+			return;
+		this.dictionary = o["data"];
+		this.key_count = 0;
+		for (var p in this.dictionary)
+		{
+			if (this.dictionary.hasOwnProperty(p))
+				this.key_count++;
+		}
+	};
+	Acts.prototype.JSONDownload = function (filename)
+	{
+		var a = document.createElement("a");
+		if (typeof a.download === "undefined")
+		{
+			var str = 'data:text/html,' + encodeURIComponent("<p><a download='data.json' href=\"data:application/json,"
+				+ encodeURIComponent(JSON.stringify({
+						"c2dictionary": true,
+						"data": this.dictionary
+					}))
+				+ "\">Download link</a></p>");
+			window.open(str);
+		}
+		else
+		{
+			var body = document.getElementsByTagName("body")[0];
+			a.textContent = filename;
+			a.href = "data:application/json," + encodeURIComponent(JSON.stringify({
+						"c2dictionary": true,
+						"data": this.dictionary
+					}));
+			a.download = filename;
+			body.appendChild(a);
+			var clickEvent = document.createEvent("MouseEvent");
+			clickEvent.initMouseEvent("click", true, true, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);
+			a.dispatchEvent(clickEvent);
+			body.removeChild(a);
+		}
+	};
+	pluginProto.acts = new Acts();
+	function Exps() {};
+	Exps.prototype.Get = function (ret, key_)
+	{
+		if (this.dictionary.hasOwnProperty(key_))
+			ret.set_any(this.dictionary[key_]);
+		else
+			ret.set_int(0);
+	};
+	Exps.prototype.KeyCount = function (ret)
+	{
+		ret.set_int(this.key_count);
+	};
+	Exps.prototype.CurrentKey = function (ret)
+	{
+		ret.set_string(this.cur_key);
+	};
+	Exps.prototype.CurrentValue = function (ret)
+	{
+		if (this.dictionary.hasOwnProperty(this.cur_key))
+			ret.set_any(this.dictionary[this.cur_key]);
+		else
+			ret.set_int(0);
+	};
+	Exps.prototype.AsJSON = function (ret)
+	{
+		ret.set_string(JSON.stringify({
+			"c2dictionary": true,
+			"data": this.dictionary
+		}));
+	};
+	pluginProto.exps = new Exps();
+}());
+;
+;
 cr.plugins_.Function = function(runtime)
 {
 	this.runtime = runtime;
@@ -32855,25 +33037,26 @@ cr.behaviors.solid = function(runtime)
 }());
 cr.getObjectRefTable = function () { return [
 	cr.plugins_.NinePatch,
-	cr.plugins_.capacitor,
-	cr.plugins_.Browser,
 	cr.plugins_.Audio,
+	cr.plugins_.Browser,
+	cr.plugins_.capacitor,
 	cr.plugins_.Function,
-	cr.plugins_.Keyboard,
+	cr.plugins_.Dictionary,
 	cr.plugins_.NodeWebkit,
 	cr.plugins_.Mouse,
-	cr.plugins_.Particles,
+	cr.plugins_.Keyboard,
 	cr.plugins_.LocalStorage,
+	cr.plugins_.Particles,
 	cr.plugins_.rex_bbcodeText,
-	cr.plugins_.Rex_Firebase_Authentication,
 	cr.plugins_.Rex_Firebase_ItemBook,
-	cr.plugins_.Rex_Firebase_Counter,
+	cr.plugins_.Rex_Firebase_Authentication,
 	cr.plugins_.Rex_Firebase,
 	cr.plugins_.Rex_Firebase_Leaderboard,
 	cr.plugins_.Rex_FirebaseAPIV3,
-	cr.plugins_.Text,
-	cr.plugins_.Spritefont2,
+	cr.plugins_.Rex_Firebase_Counter,
 	cr.plugins_.Sprite,
+	cr.plugins_.Spritefont2,
+	cr.plugins_.Text,
 	cr.plugins_.TextBox,
 	cr.plugins_.Touch,
 	cr.behaviors.Car,
@@ -32980,6 +33163,7 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Touch.prototype.cnds.OnTouchObject,
 	cr.plugins_.Sprite.prototype.cnds.CompareFrame,
 	cr.system_object.prototype.acts.GoToLayout,
+	cr.plugins_.Text.prototype.cnds.IsBoolInstanceVarSet,
 	cr.system_object.prototype.cnds.IsNaN,
 	cr.plugins_.Rex_Firebase_Leaderboard.prototype.cnds.OnPostComplete,
 	cr.plugins_.Rex_Firebase_Leaderboard.prototype.cnds.OnUpdate,
@@ -32994,7 +33178,6 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Audio.prototype.acts.Play,
 	cr.system_object.prototype.cnds.OnLayoutEnd,
 	cr.plugins_.Audio.prototype.acts.StopAll,
-	cr.plugins_.Text.prototype.cnds.IsBoolInstanceVarSet,
 	cr.plugins_.Text.prototype.acts.SetX,
 	cr.plugins_.Text.prototype.exps.X,
 	cr.system_object.prototype.exps.viewportright,
@@ -33008,8 +33191,6 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Mouse.prototype.cnds.IsOverObject,
 	cr.behaviors.Anchor.prototype.acts.SetEnabled,
 	cr.plugins_.LocalStorage.prototype.acts.GetItem,
-	cr.plugins_.NodeWebkit.prototype.acts.SetWindowHeight,
-	cr.plugins_.NodeWebkit.prototype.acts.SetWindowWidth,
 	cr.plugins_.TextBox.prototype.acts.SetCSSStyle,
 	cr.plugins_.Rex_Firebase_ItemBook.prototype.acts.SetSubDomainRef,
 	cr.plugins_.Rex_Firebase_ItemBook.prototype.acts.TreeOnDisconnectedSetValue,
@@ -33038,15 +33219,13 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.capacitor.prototype.exps.PromptResult,
 	cr.system_object.prototype.cnds.CompareBetween,
 	cr.system_object.prototype.exps.len,
-	cr.plugins_.Rex_Firebase_Counter.prototype.acts.SetDomainRef,
-	cr.plugins_.Rex_Firebase_Counter.prototype.acts.Add,
-	cr.plugins_.Function.prototype.exps.Param,
 	cr.system_object.prototype.cnds.TriggerOnce,
 	cr.plugins_.LocalStorage.prototype.acts.CheckItemExists,
 	cr.plugins_.Rex_Firebase_Authentication.prototype.acts.ReloadCurrentUser,
 	cr.system_object.prototype.exps.time,
 	cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnCreateAccountSuccessful,
 	cr.plugins_.Rex_Firebase_Authentication.prototype.acts.UpdateProfile,
+	cr.plugins_.LocalStorage.prototype.acts.RemoveItem,
 	cr.plugins_.Rex_Firebase_ItemBook.prototype.cnds.OnUpdateComplete,
 	cr.plugins_.Rex_Firebase_Authentication.prototype.acts.SendEmailVerification,
 	cr.plugins_.Rex_Firebase_Authentication.prototype.acts.LoggingOut,
@@ -33065,6 +33244,7 @@ cr.getObjectRefTable = function () { return [
 	cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.OnLoginSuccessful,
 	cr.plugins_.Rex_Firebase.prototype.cnds.OnConnected,
 	cr.plugins_.Rex_Firebase.prototype.cnds.IsConnected,
+	cr.plugins_.Function.prototype.exps.Param,
 	cr.plugins_.Rex_Firebase_Authentication.prototype.cnds.EmailPassword_OnSendVerificationEmailSuccessful
 ];};
 
